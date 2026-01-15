@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { qrScanner } from "@tma.js/sdk-react";
+import { openLink, qrScanner } from "@tma.js/sdk-react";
 
 export const QrScanner = () => {
   // Holds the latest scanned QR payload (string) or null when nothing scanned yet.
@@ -7,6 +7,42 @@ export const QrScanner = () => {
 
   // Holds a human-readable error message to show in UI.
   const [error, setError] = useState<string | null>(null);
+
+  /**
+   * Best-effort URL detection for common QR payloads.
+   * - Accepts http/https URLs.
+   * - Also treats "www.example.com" as a URL and normalizes it to "https://www.example.com".
+   */
+  const normalizeUrl = (value: string): string | null => {
+    const raw = value.trim();
+    if (!raw) return null;
+
+    // Fast path: explicit protocol.
+    if (/^https?:\/\/\S+$/i.test(raw)) {
+      try {
+        // Validate URL shape.
+        // eslint-disable-next-line no-new
+        new URL(raw);
+        return raw;
+      } catch {
+        return null;
+      }
+    }
+
+    // Common QR case: "www.example.com/..." without protocol.
+    if (/^www\.\S+$/i.test(raw)) {
+      const normalized = `https://${raw}`;
+      try {
+        // eslint-disable-next-line no-new
+        new URL(normalized);
+        return normalized;
+      } catch {
+        return null;
+      }
+    }
+
+    return null;
+  };
 
   const openScanner = useCallback(async () => {
     setError(null);
@@ -27,6 +63,14 @@ export const QrScanner = () => {
 
       if (!scanned) {
         setError("QR scanner was closed or no QR content was captured.");
+        return;
+      }
+
+      // If the QR payload is a URL, open it in Telegram. Otherwise, show it in the UI.
+      const url = normalizeUrl(scanned);
+      if (url) {
+        setQrResult(null);
+        openLink(url);
         return;
       }
 
