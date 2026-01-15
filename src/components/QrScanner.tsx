@@ -28,8 +28,15 @@ export const QrScanner = () => {
 
   // Useful context to quickly verify whether you're actually running inside Telegram.
   const envSnapshot = useMemo(() => {
-    const w = window as unknown as { Telegram?: unknown; location?: Location };
-    const hasTelegram = Boolean((w as any).Telegram?.WebApp);
+    const w = window as any;
+    /**
+     * Telegram WebApp injection shape can differ by client/platform/version.
+     * Some clients expose `window.Telegram.WebApp`, while others may expose only `window.TelegramWebviewProxy`.
+     * We use a broader check to avoid false negatives.
+     */
+    const hasTelegram =
+      Boolean(w?.Telegram?.WebApp) || Boolean(w?.TelegramWebviewProxy);
+
     const ua = typeof navigator !== "undefined" ? navigator.userAgent : "n/a";
     const url = typeof window !== "undefined" ? window.location.href : "n/a";
 
@@ -115,6 +122,17 @@ export const QrScanner = () => {
     pushLog("Tap: Start QR Scanner");
     setError(null);
 
+    // If capture callback is invoked but the promise never resolves (seen on some iOS clients),
+    // we still want to get a visible hint in logs and UI.
+    let captureResolved = false;
+    const timeoutId = window.setTimeout(() => {
+      if (!captureResolved) {
+        pushLog(
+          "Timeout: qrScanner.capture() did not resolve. Using capture() callback handling (fallback).",
+        );
+      }
+    }, 3000);
+
     try {
       pushLog(`Env: hasTelegramWebApp=${String(envSnapshot.hasTelegram)}`);
 
@@ -146,33 +164,73 @@ export const QrScanner = () => {
       /**
        * Opens Telegram Mini App native QR scanner and captures a single QR.
        *
-       * - `capture(scannedQr)` must return `true` when you want to accept the value and close the scanner.
-       * - The returned promise may resolve with `undefined` when the user closes the scanner without scanning.
+       * IMPORTANT:
+       * Some clients can invoke `capture(scannedQr)` but never resolve the returned promise.
+       * To avoid a "no result" UX, we handle the payload immediately inside the callback (fallback),
+       * then still await the promise for the normal/expected flow.
        */
       const scanned = await qrScanner.capture({
         capture(scannedQr) {
           pushLog(`capture(): received=${JSON.stringify(scannedQr)}`);
-          // Accept the first non-empty QR payload.
-          return typeof scannedQr === "string" && scannedQr.trim().length > 0;
+
+          // Only handle valid non-empty strings.
+          if (typeof scannedQr !== "string" || scannedQr.trim().length === 0) {
+            return false;
+          }
+
+          // Fallback: handle payload immediately instead of waiting for the promise to resolve.
+          const url = normalizeUrl(scannedQr);
+          pushLog(`capture(): normalizeUrl => ${JSON.stringify(url)}`);
+
+          if (url) {
+            setQrResult(null);
+            pushLog(`capture(): openLink(${url})`);
+            try {
+              openLink(url);
+              pushLog("capture(): openLink dispatched.");
+            } catch (e) {
+              const msg =
+                e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+              pushLog(`capture(): openLink threw => ${msg}`);
+            }
+          } else {
+            pushLog("capture(): showing payload in UI.");
+            setQrResult(scannedQr);
+          }
+
+          // Accept (and close) immediately after we've handled the payload.
+          return true;
         },
       });
 
+      captureResolved = true;
+      window.clearTimeout(timeoutId);
+
       pushLog(`qrScanner.capture resolved: ${JSON.stringify(scanned)}`);
 
+      // If the promise resolved with a value, we can run the normal flow too.
+      // (This is mostly redundant with the callback handling, but kept for correctness.)
       if (!scanned) {
         setError("QR scanner was closed or no QR content was captured.");
         pushLog("No payload returned (scanner closed / undefined).");
         return;
       }
 
-      // If the QR payload is a URL, open it in Telegram. Otherwise, show it in the UI.
       const url = normalizeUrl(scanned);
       pushLog(`normalizeUrl => ${JSON.stringify(url)}`);
 
       if (url) {
         setQrResult(null);
         pushLog(`Opening link via openLink(): ${url}`);
-        openLink(url);
+        try {
+          openLink(url);
+          pushLog("openLink(): dispatched.");
+        } catch (e) {
+          const msg =
+            e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+          pushLog(`openLink(): threw => ${msg}`);
+          throw e;
+        }
         return;
       }
 
@@ -191,6 +249,12 @@ export const QrScanner = () => {
       pushLog(`Exception: ${msg}`);
       // Keep console output as well for cases when DevTools/Eruda is enabled.
       console.error(e);
+    } finally {
+      if (!captureResolved) {
+        // If promise is still pending, keep timeout log behavior. Otherwise safely clean up.
+      } else {
+        window.clearTimeout(timeoutId);
+      }
     }
   }, [envSnapshot.hasTelegram, pushLog]);
 
