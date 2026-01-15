@@ -1,5 +1,11 @@
 import { useCallback, useMemo, useState } from "react";
-import { openLink, qrScanner } from "@tma.js/sdk-react";
+import {
+  initData,
+  isTMA,
+  openLink,
+  qrScanner,
+  retrieveLaunchParams,
+} from "@tma.js/sdk-react";
 
 export const QrScanner = () => {
   // Holds the latest scanned QR payload (string) or null when nothing scanned yet.
@@ -26,7 +32,47 @@ export const QrScanner = () => {
     const hasTelegram = Boolean((w as any).Telegram?.WebApp);
     const ua = typeof navigator !== "undefined" ? navigator.userAgent : "n/a";
     const url = typeof window !== "undefined" ? window.location.href : "n/a";
-    return { hasTelegram, ua, url };
+
+    // Additional checks:
+    // 1) retrieveLaunchParams(): whether launch params are available (and what platform Telegram reports).
+    let launchParamsOk = false;
+    let launchPlatform: string | null = null;
+    let launchError: string | null = null;
+    try {
+      const lp = retrieveLaunchParams();
+      launchParamsOk = true;
+      // lp.tgWebAppPlatform is usually present in Telegram environment.
+      launchPlatform = (lp as any)?.tgWebAppPlatform ?? null;
+    } catch (e) {
+      launchError = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+    }
+
+    // 2) initData raw presence: whether init data is available in this runtime.
+    let initDataRawPresent = false;
+    let initDataError: string | null = null;
+    try {
+      const raw = initData.raw();
+      initDataRawPresent = typeof raw === "string" && raw.length > 0;
+    } catch (e) {
+      initDataError =
+        e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+    }
+
+    // 3) isTMA('complete'): SDK-provided environment completeness check.
+    // Note: `isTMA` returns a Promise, so we only store "pending" here and resolve it in code.
+    const isTmaComplete = "pending" as const;
+
+    return {
+      hasTelegram,
+      ua,
+      url,
+      launchParamsOk,
+      launchPlatform,
+      launchError,
+      initDataRawPresent,
+      initDataError,
+      isTmaComplete,
+    };
   }, []);
 
   /**
@@ -71,6 +117,30 @@ export const QrScanner = () => {
 
     try {
       pushLog(`Env: hasTelegramWebApp=${String(envSnapshot.hasTelegram)}`);
+
+      // 1) Launch params check (sync)
+      pushLog(
+        `LaunchParams: ok=${String(envSnapshot.launchParamsOk)} platform=${JSON.stringify(
+          envSnapshot.launchPlatform,
+        )} err=${JSON.stringify(envSnapshot.launchError)}`,
+      );
+
+      // 2) initData presence check (sync)
+      pushLog(
+        `InitData: rawPresent=${String(envSnapshot.initDataRawPresent)} err=${JSON.stringify(
+          envSnapshot.initDataError,
+        )}`,
+      );
+
+      // 3) isTMA('complete') check (async)
+      try {
+        const ok = await isTMA("complete");
+        pushLog(`isTMA('complete') => ${String(ok)}`);
+      } catch (e) {
+        const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+        pushLog(`isTMA('complete') threw => ${msg}`);
+      }
+
       pushLog("Calling qrScanner.capture(...)");
 
       /**
@@ -211,6 +281,31 @@ export const QrScanner = () => {
 
         <div style={{ marginTop: "10px", fontSize: "12px", opacity: 0.9 }}>
           <div>hasTelegramWebApp: {String(envSnapshot.hasTelegram)}</div>
+
+          <div style={{ marginTop: "6px" }}>
+            <strong>Launch params</strong>
+          </div>
+          <div>ok: {String(envSnapshot.launchParamsOk)}</div>
+          <div>platform: {String(envSnapshot.launchPlatform ?? "")}</div>
+          {envSnapshot.launchError && (
+            <div style={{ wordBreak: "break-word" }}>
+              error: {envSnapshot.launchError}
+            </div>
+          )}
+
+          <div style={{ marginTop: "6px" }}>
+            <strong>Init data</strong>
+          </div>
+          <div>raw present: {String(envSnapshot.initDataRawPresent)}</div>
+          {envSnapshot.initDataError && (
+            <div style={{ wordBreak: "break-word" }}>
+              error: {envSnapshot.initDataError}
+            </div>
+          )}
+
+          <div style={{ marginTop: "6px" }}>
+            <strong>Runtime</strong>
+          </div>
           <div style={{ wordBreak: "break-word" }}>url: {envSnapshot.url}</div>
           <div style={{ wordBreak: "break-word" }}>ua: {envSnapshot.ua}</div>
         </div>
