@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { openLink, qrScanner } from "@tma.js/sdk-react";
 
 export const QrScanner = () => {
@@ -7,6 +7,27 @@ export const QrScanner = () => {
 
   // Holds a human-readable error message to show in UI.
   const [error, setError] = useState<string | null>(null);
+
+  // On-screen logs for debugging on mobile devices (where DevTools may be inconvenient).
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+
+  const pushLog = useCallback((message: string) => {
+    const ts = new Date().toISOString();
+    setDebugLogs((prev) => [`${ts} ${message}`, ...prev].slice(0, 80));
+  }, []);
+
+  const clearLogs = useCallback(() => {
+    setDebugLogs([]);
+  }, []);
+
+  // Useful context to quickly verify whether you're actually running inside Telegram.
+  const envSnapshot = useMemo(() => {
+    const w = window as unknown as { Telegram?: unknown; location?: Location };
+    const hasTelegram = Boolean((w as any).Telegram?.WebApp);
+    const ua = typeof navigator !== "undefined" ? navigator.userAgent : "n/a";
+    const url = typeof window !== "undefined" ? window.location.href : "n/a";
+    return { hasTelegram, ua, url };
+  }, []);
 
   /**
    * Best-effort URL detection for common QR payloads.
@@ -45,9 +66,13 @@ export const QrScanner = () => {
   };
 
   const openScanner = useCallback(async () => {
+    pushLog("Tap: Start QR Scanner");
     setError(null);
 
     try {
+      pushLog(`Env: hasTelegramWebApp=${String(envSnapshot.hasTelegram)}`);
+      pushLog("Calling qrScanner.capture(...)");
+
       /**
        * Opens Telegram Mini App native QR scanner and captures a single QR.
        *
@@ -56,33 +81,48 @@ export const QrScanner = () => {
        */
       const scanned = await qrScanner.capture({
         capture(scannedQr) {
+          pushLog(`capture(): received=${JSON.stringify(scannedQr)}`);
           // Accept the first non-empty QR payload.
           return typeof scannedQr === "string" && scannedQr.trim().length > 0;
         },
       });
 
+      pushLog(`qrScanner.capture resolved: ${JSON.stringify(scanned)}`);
+
       if (!scanned) {
         setError("QR scanner was closed or no QR content was captured.");
+        pushLog("No payload returned (scanner closed / undefined).");
         return;
       }
 
       // If the QR payload is a URL, open it in Telegram. Otherwise, show it in the UI.
       const url = normalizeUrl(scanned);
+      pushLog(`normalizeUrl => ${JSON.stringify(url)}`);
+
       if (url) {
         setQrResult(null);
+        pushLog(`Opening link via openLink(): ${url}`);
         openLink(url);
         return;
       }
 
+      pushLog("Showing scanned payload in UI.");
       setQrResult(scanned);
     } catch (e) {
       // This may happen if the environment does not support QR scanning or the client rejects the call.
+      const msg =
+        e instanceof Error
+          ? `${e.name}: ${e.message}`
+          : `Non-Error throw: ${String(e)}`;
+
       setError(
         "Failed to open QR scanner (unsupported environment or client limitation).",
       );
+      pushLog(`Exception: ${msg}`);
+      // Keep console output as well for cases when DevTools/Eruda is enabled.
       console.error(e);
     }
-  }, []);
+  }, [envSnapshot.hasTelegram, pushLog]);
 
   return (
     <div
@@ -132,6 +172,67 @@ export const QrScanner = () => {
 
       {/* Error section */}
       {error && <div style={{ color: "red", marginTop: "10px" }}>{error}</div>}
+
+      {/* Debug section */}
+      <div
+        style={{
+          marginTop: "10px",
+          width: "100%",
+          background: "#111",
+          color: "#eee",
+          borderRadius: "8px",
+          padding: "12px",
+          boxSizing: "border-box",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "10px",
+          }}
+        >
+          <strong>Debug logs</strong>
+          <button
+            onClick={clearLogs}
+            style={{
+              padding: "6px 10px",
+              borderRadius: "8px",
+              border: "1px solid #444",
+              background: "#222",
+              color: "#eee",
+              cursor: "pointer",
+              fontSize: "12px",
+            }}
+          >
+            Clear
+          </button>
+        </div>
+
+        <div style={{ marginTop: "10px", fontSize: "12px", opacity: 0.9 }}>
+          <div>hasTelegramWebApp: {String(envSnapshot.hasTelegram)}</div>
+          <div style={{ wordBreak: "break-word" }}>url: {envSnapshot.url}</div>
+          <div style={{ wordBreak: "break-word" }}>ua: {envSnapshot.ua}</div>
+        </div>
+
+        <pre
+          style={{
+            marginTop: "10px",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            background: "#0b0b0b",
+            padding: "10px",
+            borderRadius: "6px",
+            maxHeight: "260px",
+            overflow: "auto",
+            border: "1px solid #222",
+          }}
+        >
+          {debugLogs.length
+            ? debugLogs.join("\n")
+            : "No logs yet. Tap the button to start."}
+        </pre>
+      </div>
     </div>
   );
 };
