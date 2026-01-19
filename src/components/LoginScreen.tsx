@@ -78,20 +78,20 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     // B. Critical Step: Call Edge Function to bind Telegram ID
     // We send init data raw which contains the cryptographic signature from Telegram
 
-    const { data, error: bindError } = await supabase.functions.invoke("connect-telegram", {
-      body: { initData: raw },
-      headers: { Authorization: `Bearer ${session.access_token}` },
-    });
+    const { data, error: bindError } = await supabase.functions.invoke(
+      "connect-telegram",
+      {
+        body: { initData: raw },
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      },
+    );
     console.log("connect-telegram data =", data);
-
 
     setLoading(false);
 
     if (bindError) {
       console.log("bindError =", bindError);
       alert("Binding failed: " + JSON.stringify(bindError, null, 2));
-    }
-
       // Optional: Sign out if binding fails to ensure data consistency
       // await supabase.auth.signOut();
     } else {
