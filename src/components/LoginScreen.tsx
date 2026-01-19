@@ -47,6 +47,18 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const handleVerify = async () => {
     setLoading(true);
 
+    // 1. Debug: check whether Telegram init data is available.
+    console.log("Debug: initDataRaw =", lp.initDataRaw);
+
+    // === Defensive check ===
+    if (!lp.initDataRaw) {
+      alert(
+        "错误：无法获取 Telegram 启动数据(initDataRaw)。\n请确保你在 Telegram 内部打开，或者配置了 mockEnv。",
+      );
+      setLoading(false);
+      return;
+    }
+
     // A. Verify OTP with Supabase
     const {
       data: { session },
