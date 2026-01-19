@@ -16,13 +16,21 @@ export function App() {
   const lp = useLaunchParams();
   const isDark = useSignal(miniApp.isDark);
 
+  const tgUser = useSignal(initData.state)?.user;
+
   // State for permission checking
   const [isChecking, setIsChecking] = useState(true);
   const [hasAccess, setHasAccess] = useState(false);
 
   useEffect(() => {
+    // Defer permission check until Telegram initData is ready.
+    if (!tgUser?.id) {
+      setHasAccess(false);
+      setIsChecking(false);
+      return;
+    }
     checkPermission();
-  }, []);
+  }, [tgUser?.id]);
 
   async function checkPermission() {
     setIsChecking(true);
@@ -95,7 +103,7 @@ export function App() {
         </HashRouter>
       ) : (
         // 3. Login Screen (Unauthorized)
-        <LoginScreen onLoginSuccess={() => setHasAccess(true)} />
+        <LoginScreen onLoginSuccess={() => checkPermission()} />
       )}
     </AppRoot>
   );

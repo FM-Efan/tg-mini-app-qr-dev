@@ -7,7 +7,7 @@ import {
   Placeholder,
   Spinner,
 } from "@telegram-apps/telegram-ui";
-import { useLaunchParams } from "@tma.js/sdk-react";
+import { initData } from "@tma.js/sdk-react";
 import { supabase } from "@/supabaseClient";
 
 interface LoginScreenProps {
@@ -15,7 +15,6 @@ interface LoginScreenProps {
 }
 
 export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
-  const lp = useLaunchParams();
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
   const [step, setStep] = useState<"email" | "otp">("email");
@@ -47,13 +46,14 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const handleVerify = async () => {
     setLoading(true);
 
-    // 1. Debug: check whether Telegram init data is available.
-    console.log("Debug: initDataRaw =", lp.initDataRaw);
+    // 1. Debug: use initData module as the source of truth.
+    const raw = initData.raw();
+    console.log("Debug: initDataRaw =", raw);
 
     // === Defensive check ===
-    if (!lp.initDataRaw) {
+    if (!raw) {
       alert(
-        "错误：无法获取 Telegram 启动数据(initDataRaw)。\n请确保你在 Telegram 内部打开，或者配置了 mockEnv。",
+        "无法获取 initDataRaw：请从 Telegram 内部入口打开（Menu/Button）。",
       );
       setLoading(false);
       return;
@@ -76,11 +76,11 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     }
 
     // B. Critical Step: Call Edge Function to bind Telegram ID
-    // We send 'initDataRaw' which contains the cryptographic signature from Telegram
+    // We send init data raw which contains the cryptographic signature from Telegram
     const { error: bindError } = await supabase.functions.invoke(
       "connect-telegram",
       {
-        body: { initData: lp.initDataRaw },
+        body: { initData: raw },
       },
     );
 
