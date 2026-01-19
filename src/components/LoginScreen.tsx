@@ -24,8 +24,8 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   // 1. Send OTP
   const handleSendOtp = async () => {
     // Basic domain check on frontend
-    if (!email.endsWith("@favoritemedimu.com")) {
-      alert("Access Denied: Only @favoritemedimu.com emails are allowed.");
+    if (!email.endsWith("@favoritemedium.com")) {
+      alert("Access Denied: Only @favoritemedium.com emails are allowed.");
       return;
     }
     setLoading(true);
@@ -106,7 +106,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           <>
             <Input
               header="Email"
-              placeholder="name@favoritemedimu.com"
+              placeholder="name@favoritemedium.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
